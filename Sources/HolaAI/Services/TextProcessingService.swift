@@ -19,11 +19,17 @@ enum TextProcessingError: Error, LocalizedError {
     }
 }
 
-/// GPT API response structure
+/// GPT API response structure (handles both standard and reasoning models)
 private struct GPTResponse: Decodable {
     struct Choice: Decodable {
         struct Message: Decodable {
-            let content: String
+            let content: String?
+            let reasoning: String?
+
+            /// Returns content if available, otherwise falls back to reasoning
+            var text: String? {
+                content ?? reasoning
+            }
         }
         let message: Message
     }
@@ -116,16 +122,18 @@ final class TextProcessingService {
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let responseBody = String(data: data, encoding: .utf8) ?? "no body"
+            logger.error("LLM API error (\(provider.rawValue), status \(statusCode)): \(responseBody.prefix(200))")
             throw TextProcessingError.enhancementFailed(underlying: NSError(
                 domain: "TextProcessing",
                 code: statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "API request failed (\(statusCode))"]
+                userInfo: [NSLocalizedDescriptionKey: "API request failed (\(provider.rawValue), status \(statusCode)): \(responseBody.prefix(100))"]
             ))
         }
 
         let gptResponse = try JSONDecoder().decode(GPTResponse.self, from: data)
 
-        guard let text = gptResponse.choices.first?.message.content else {
+        guard let text = gptResponse.choices.first?.message.text else {
             throw TextProcessingError.enhancementFailed(underlying: NSError(
                 domain: "TextProcessing",
                 code: -2,
@@ -433,9 +441,13 @@ final class TextProcessingService {
     // MARK: - Translation (Dictation)
 
     /// Translate dictation output to English (no prompt formatting)
-    func translateTextToEnglish(_ text: String, language: String? = nil) async -> String {
+    /// Returns a tuple: (translatedText, didTranslate)
+    func translateTextToEnglish(_ text: String, language: String? = nil) async -> (String, Bool) {
         let provider = dictationLLMProvider
-        guard let apiKey = try? requireAPIKey(for: provider) else { return text }
+        guard let apiKey = try? requireAPIKey(for: provider) else {
+            logger.error("Translation failed: no API key for \(provider.rawValue)")
+            return (text, false)
+        }
         let model = dictationLLMModel ?? provider.defaultModel
 
         let languageHint = language.map { "Original language hint: \($0)." } ?? "Detect the original language automatically."
@@ -458,10 +470,11 @@ final class TextProcessingService {
         ]
 
         do {
-            return try await makeLLMRequest(provider: provider, apiKey: apiKey, model: model, messages: messages)
+            let translated = try await makeLLMRequest(provider: provider, apiKey: apiKey, model: model, messages: messages)
+            return (translated, true)
         } catch {
-            logger.error("Translation failed, returning original text: \(error.localizedDescription)")
-            return text
+            logger.error("Translation failed (\(provider.rawValue)/\(model)): \(error.localizedDescription)")
+            return (text, false)
         }
     }
 }

@@ -71,13 +71,34 @@ jobs:
         if: env.SIGN_IDENTITY == ''
         run: echo "SIGN_IDENTITY=-" >> $GITHUB_ENV
 
-      - name: Build release binary
+      - name: Build universal release binary (arm64 + x86_64)
         run: |
+          # Build for Apple Silicon
           xcodebuild -scheme HolaAI \
-            -destination 'platform=macOS' \
+            -destination 'platform=macOS,arch=arm64' \
             -configuration Release \
-            -derivedDataPath build \
+            -derivedDataPath build-arm64 \
+            ONLY_ACTIVE_ARCH=NO \
             build
+
+          # Build for Intel
+          xcodebuild -scheme HolaAI \
+            -destination 'platform=macOS,arch=x86_64' \
+            -configuration Release \
+            -derivedDataPath build-x86_64 \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+          # Create universal binary with lipo
+          mkdir -p build/Build/Products/Release
+          lipo -create \
+            build-arm64/Build/Products/Release/HolaAI \
+            build-x86_64/Build/Products/Release/HolaAI \
+            -output build/Build/Products/Release/HolaAI
+
+          # Verify it's universal
+          echo "Binary architectures:"
+          lipo -info build/Build/Products/Release/HolaAI
 
       - name: Create app bundle
         run: |
@@ -99,7 +120,7 @@ jobs:
             cp Sources/HolaAI/Resources/AppIcon.icns "${APP_DIR}/Contents/Resources/AppIcon.icns"
           fi
 
-          RESOURCE_BUNDLE=$(find build/Build/Products -name "HolaAI_HolaAI.bundle" -type d 2>/dev/null | head -1)
+          RESOURCE_BUNDLE=$(find build-arm64/Build/Products build-x86_64/Build/Products -name "HolaAI_HolaAI.bundle" -type d 2>/dev/null | head -1)
           if [ -n "${RESOURCE_BUNDLE}" ] && [ -d "${RESOURCE_BUNDLE}" ]; then
             cp -R "${RESOURCE_BUNDLE}" "${APP_DIR}/Contents/Resources/"
           fi
@@ -135,7 +156,7 @@ jobs:
       - name: Create DMG
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          DMG_NAME="Hola-AI-macOS-${VERSION}.dmg"
+          DMG_NAME="Hola-AI-macOS-Universal-${VERSION}.dmg"
           mkdir -p dist/dmg
           cp -R dist/Hola-AI.app dist/dmg/
           ln -s /Applications dist/dmg/Applications
@@ -190,10 +211,12 @@ jobs:
           body: |
             ## Installation
 
-            ### macOS
+            ### macOS (Universal — Apple Silicon + Intel)
             1. Download the `.dmg` file
             2. Open the DMG and drag **Hola-AI** to Applications
             3. Grant Microphone and Accessibility permissions when prompted
+
+            > Works on both Apple Silicon (M1/M2/M3/M4) and Intel Macs (2012+)
 
             ### Windows
             1. Download the `.exe` file

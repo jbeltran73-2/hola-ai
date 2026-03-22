@@ -196,7 +196,12 @@ final class DictationManager: AudioCaptureDelegate {
                 let cleaned = await textProcessingService.processTextAsync(text, language: transcriptionLanguage)
                 if translateToEnglish {
                     print("🌐 [DictationManager] Translating to English...")
-                    processedText = await textProcessingService.translateTextToEnglish(cleaned, language: transcriptionLanguage)
+                    let (translated, didTranslate) = await textProcessingService.translateTextToEnglish(cleaned, language: transcriptionLanguage)
+                    processedText = translated
+                    if !didTranslate {
+                        print("⚠️ [DictationManager] Translation failed — inserting original text. Check your LLM API key.")
+                        logger.warning("Translation to English failed. Check API key for dictation LLM provider.")
+                    }
                 } else {
                     processedText = cleaned
                 }
