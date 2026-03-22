@@ -73,28 +73,13 @@ jobs:
 
       - name: Build universal release binary (arm64 + x86_64)
         run: |
-          # Build for Apple Silicon
           xcodebuild -scheme HolaAI \
-            -destination 'platform=macOS,arch=arm64' \
+            -destination 'platform=macOS' \
             -configuration Release \
-            -derivedDataPath build-arm64 \
+            -derivedDataPath build \
+            ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             build
-
-          # Build for Intel
-          xcodebuild -scheme HolaAI \
-            -destination 'platform=macOS,arch=x86_64' \
-            -configuration Release \
-            -derivedDataPath build-x86_64 \
-            ONLY_ACTIVE_ARCH=NO \
-            build
-
-          # Create universal binary with lipo
-          mkdir -p build/Build/Products/Release
-          lipo -create \
-            build-arm64/Build/Products/Release/HolaAI \
-            build-x86_64/Build/Products/Release/HolaAI \
-            -output build/Build/Products/Release/HolaAI
 
           # Verify it's universal
           echo "Binary architectures:"
@@ -120,7 +105,7 @@ jobs:
             cp Sources/HolaAI/Resources/AppIcon.icns "${APP_DIR}/Contents/Resources/AppIcon.icns"
           fi
 
-          RESOURCE_BUNDLE=$(find build-arm64/Build/Products build-x86_64/Build/Products -name "HolaAI_HolaAI.bundle" -type d 2>/dev/null | head -1)
+          RESOURCE_BUNDLE=$(find build/Build/Products -name "HolaAI_HolaAI.bundle" -type d 2>/dev/null | head -1)
           if [ -n "${RESOURCE_BUNDLE}" ] && [ -d "${RESOURCE_BUNDLE}" ]; then
             cp -R "${RESOURCE_BUNDLE}" "${APP_DIR}/Contents/Resources/"
           fi
