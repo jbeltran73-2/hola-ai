@@ -83,11 +83,9 @@ xcode-select --install
 # Option 2: Install full Xcode (recommended for macOS app development)
 ```
 
-## Apple Developer Account
+## Apple Developer Account / Signing
 
-- **Developer ID**: Juan Beltran (K4Y5K8699H)
-- **Certificate**: Developer ID Application: Juan Beltran (K4Y5K8699H)
-- **Never store app-specific passwords, certificates, or Apple ID credentials in this file**
+Never store app-specific passwords, Team ID, Apple ID email, certificates, or other credentials in this file.
 
 ### GitHub Actions Secrets (repo: jbeltran73-2/hola-ai)
 
@@ -97,11 +95,11 @@ Store these only in GitHub → Settings → Secrets and variables → Actions:
 |--------|-------------|
 | `CERTIFICATE_P12` | Developer ID Application certificate (base64) |
 | `CERTIFICATE_PASSWORD` | Certificate export password |
-| `APPLE_TEAM_ID` | Team ID (K4Y5K8699H) |
+| `APPLE_TEAM_ID` | Apple Developer Team ID |
 | `APPLE_PASSWORD` | App-specific password for notarization |
 | `APPLE_ID` | Apple ID email for notarization |
 
-Local notarization uses a Keychain profile (`NOTARY_PROFILE`), not a password in git.
+Local notarization uses a Keychain profile (`NOTARY_PROFILE`), not credentials in git.
 
 ## Ralph Agent Integration
 
