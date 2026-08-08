@@ -20,60 +20,72 @@ struct RecordingOverlayView: View {
     private let softInk = Color(red: 0.22, green: 0.20, blue: 0.18)
 
     var body: some View {
+        // IMPORTANT: size to content only — never fill the window with maxWidth/maxHeight,
+        // or SwiftUI/material can paint a semi-opaque rectangle around the pill.
         VStack(alignment: .center, spacing: 8) {
             if isExpanded {
                 expandedOptions
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            HStack(spacing: 12) {
-                // + expands secondary actions
-                circleButton(systemName: "plus") {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        onExpandChange?(!isExpanded)
-                    }
-                }
-                .help("More options")
-                .rotationEffect(.degrees(isExpanded ? 45 : 0))
-                .animation(.easeInOut(duration: 0.2), value: isExpanded)
-
-                // Level-driven waveform
-                WaveformCanvas(
-                    level: isRecording ? audioLevel : (isTranscribing ? 0.25 : 0.08),
-                    isActive: isRecording || isTranscribing,
-                    color: bronze
-                )
-                .frame(width: 148, height: 28)
-                .opacity(isRecording || isTranscribing ? 1 : 0.7)
-
-                micButton
-
-                Button(action: { onClose?() }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Color.black.opacity(0.88)))
-                }
-                .buttonStyle(.plain)
-                .help("Hide overlay")
-            }
-            .padding(.leading, 10)
-            .padding(.trailing, 8)
-            .padding(.vertical, 8)
-            .background(pillBackground)
-            .compositingGroup()
-            .shadow(color: Color.black.opacity(0.18), radius: 14, x: 0, y: 6)
+            pillBar
 
             if isRecording || isTranscribing {
                 statusLabel
                     .transition(.opacity)
             }
         }
-        // Entire root must be clear so only the capsule is visible
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .padding(2)
+        // Explicit clear — no material on the root
         .background(Color.clear)
-        .padding(4)
+    }
+
+    // MARK: - Main bar
+
+    private var pillBar: some View {
+        HStack(spacing: 12) {
+            circleButton(systemName: "plus") {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    onExpandChange?(!isExpanded)
+                }
+            }
+            .help("More options")
+            .rotationEffect(.degrees(isExpanded ? 45 : 0))
+            .animation(.easeInOut(duration: 0.2), value: isExpanded)
+
+            WaveformCanvas(
+                level: isRecording ? audioLevel : (isTranscribing ? 0.25 : 0.08),
+                isActive: isRecording || isTranscribing,
+                color: bronze
+            )
+            .frame(width: 148, height: 28)
+            .opacity(isRecording || isTranscribing ? 1 : 0.7)
+
+            micButton
+
+            Button(action: { onClose?() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(Color.black.opacity(0.88)))
+            }
+            .buttonStyle(.plain)
+            .help("Hide overlay")
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        // Glass fill clipped strictly to the capsule — no outer rect
+        .background(alignment: .center) {
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.94))
+                .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 3)
+        }
+        .overlay {
+            Capsule(style: .continuous)
+                .stroke(Color.black.opacity(0.06), lineWidth: 0.5)
+        }
     }
 
     // MARK: - Pieces
@@ -107,12 +119,12 @@ struct RecordingOverlayView: View {
 
     private var micBackground: Color {
         if isTranscribing {
-            return Color.white.opacity(0.92)
+            return Color(white: 0.96)
         }
         if isRecording {
             return Color(red: 0.86, green: 0.22, blue: 0.22)
         }
-        return Color.white.opacity(0.92)
+        return Color(white: 0.97)
     }
 
     private var expandedOptions: some View {
@@ -151,9 +163,15 @@ struct RecordingOverlayView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(pillBackground)
-        .compositingGroup()
-        .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 4)
+        .background {
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.94))
+                .shadow(color: Color.black.opacity(0.10), radius: 6, x: 0, y: 2)
+        }
+        .overlay {
+            Capsule(style: .continuous)
+                .stroke(Color.black.opacity(0.06), lineWidth: 0.5)
+        }
     }
 
     private var statusLabel: some View {
@@ -166,42 +184,16 @@ struct RecordingOverlayView: View {
 
             Text(isTranscribing ? "Transcribing…" : "Listening…")
                 .font(.system(size: 11, weight: .medium, design: .rounded))
-                .foregroundColor(.primary.opacity(0.85))
+                .foregroundColor(softInk.opacity(0.85))
                 .tracking(0.3)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
-        .background(statusBackground)
-        .compositingGroup()
-    }
-
-    /// Cool translucent glass — not warm/cream
-    private var pillBackground: some View {
-        Capsule(style: .continuous)
-            .fill(.regularMaterial)
-            .environment(\.colorScheme, .light)
-            .overlay(
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.28))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(0.55), lineWidth: 0.8)
-            )
-    }
-
-    private var statusBackground: some View {
-        Capsule(style: .continuous)
-            .fill(.regularMaterial)
-            .environment(\.colorScheme, .light)
-            .overlay(
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.2))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(0.4), lineWidth: 0.6)
-            )
+        .background {
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.92))
+                .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 1)
+        }
     }
 
     private func circleButton(systemName: String, action: @escaping () -> Void) -> some View {
@@ -212,7 +204,7 @@ struct RecordingOverlayView: View {
                 .frame(width: 32, height: 32)
                 .background(
                     Circle()
-                        .fill(Color.white.opacity(0.35))
+                        .fill(Color.white.opacity(0.55))
                         .overlay(
                             Circle()
                                 .stroke(Color.black.opacity(0.12), lineWidth: 1)
@@ -241,7 +233,7 @@ struct RecordingOverlayView: View {
             .padding(.vertical, 7)
             .background(
                 Capsule()
-                    .fill(isOn ? onColor : Color.white.opacity(0.45))
+                    .fill(isOn ? onColor : Color.white.opacity(0.7))
             )
             .overlay(
                 Capsule()
@@ -255,7 +247,6 @@ struct RecordingOverlayView: View {
 
 // MARK: - Waveform (voice-reactive)
 
-/// Sine waveform that scales strongly with live mic `level`
 private struct WaveformCanvas: View {
     let level: Float
     let isActive: Bool
@@ -336,7 +327,8 @@ struct AudioLevelView: View {
 
 #Preview("Idle") {
     ZStack {
-        Color.gray.opacity(0.4).ignoresSafeArea()
+        // Checkerboard so transparency is obvious
+        Color.blue.opacity(0.35).ignoresSafeArea()
         RecordingOverlayView(
             isRecording: false,
             isTranscribing: false,
@@ -348,20 +340,4 @@ struct AudioLevelView: View {
         )
     }
     .frame(width: 420, height: 180)
-}
-
-#Preview("Recording") {
-    ZStack {
-        Color.gray.opacity(0.4).ignoresSafeArea()
-        RecordingOverlayView(
-            isRecording: true,
-            isTranscribing: false,
-            audioLevel: 0.7,
-            intent: .prompt,
-            translateToEnglish: true,
-            canCopyLastText: true,
-            isExpanded: true
-        )
-    }
-    .frame(width: 420, height: 220)
 }
