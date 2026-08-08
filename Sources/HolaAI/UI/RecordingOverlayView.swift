@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A floating overlay with a toggle button for recording
+/// Floating frosted-glass voice control bar (inspired by Voice Talk mockups)
 struct RecordingOverlayView: View {
     let isRecording: Bool
     let isTranscribing: Bool
@@ -8,285 +8,311 @@ struct RecordingOverlayView: View {
     let intent: DictationIntent
     let translateToEnglish: Bool
     let canCopyLastText: Bool
+    let isExpanded: Bool
     var onToggle: ((DictationOptions) -> Void)?
     var onIntentChange: ((DictationIntent) -> Void)?
     var onTranslateChange: ((Bool) -> Void)?
     var onCopyLastText: (() -> Void)?
     var onClose: (() -> Void)?
+    var onExpandChange: ((Bool) -> Void)?
 
-    @State private var isHovering = false
+    private let bronze = Color(red: 0.62, green: 0.48, blue: 0.36)
+    private let softInk = Color(red: 0.22, green: 0.20, blue: 0.18)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Spacer()
-                closeButton
-                    .opacity(isHovering ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.15), value: isHovering)
+        VStack(alignment: .center, spacing: 8) {
+            if isExpanded {
+                expandedOptions
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-            HStack(spacing: 10) {
-                // Main toggle button (microphone)
-                Button(action: {
-                    if !isTranscribing {
-                        onToggle?(DictationOptions(intent: intent, translateToEnglish: translateToEnglish))
-                    }
-                }) {
-                    ZStack {
-                        Circle()
-                            .fill(isTranscribing ? Color.orange : (isRecording ? Color.red : Color.blue))
-                            .frame(width: 36, height: 36)
 
-                        if isTranscribing {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-                                .scaleEffect(0.6)
-                                .colorScheme(.dark)
-                        } else {
-                            Image(systemName: isRecording ? "stop.fill" : "mic.fill")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
-                        }
+            HStack(spacing: 12) {
+                // + expands secondary actions
+                circleButton(systemName: "plus") {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        onExpandChange?(!isExpanded)
                     }
                 }
-                .buttonStyle(.plain)
-                .disabled(isTranscribing)
+                .help("More options")
+                .rotationEffect(.degrees(isExpanded ? 45 : 0))
+                .animation(.easeInOut(duration: 0.2), value: isExpanded)
 
-                if isRecording {
-                    AudioLevelView(level: audioLevel)
-                        .frame(width: 50, height: 20)
-                }
-
-                IconToggle(
-                    isOn: promptToggleBinding,
-                    systemName: "sparkles",
-                    onColor: Color.orange
+                // Level-driven waveform
+                WaveformCanvas(
+                    level: isRecording ? audioLevel : (isTranscribing ? 0.25 : 0.08),
+                    isActive: isRecording || isTranscribing,
+                    color: bronze
                 )
-                .disabled(isRecording || isTranscribing)
+                .frame(width: 148, height: 28)
+                .opacity(isRecording || isTranscribing ? 1 : 0.7)
 
-                FlagToggle(
-                    isOn: translateToggleBinding,
-                    onColor: Color.blue
-                )
-                .disabled(isRecording || isTranscribing || intent == .prompt)
-                .opacity(intent == .prompt ? 0.5 : 1.0)
+                micButton
 
-                Button(action: {
-                    onCopyLastText?()
-                }) {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(canCopyLastText ? .white : .secondary)
+                Button(action: { onClose?() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.white)
                         .frame(width: 32, height: 32)
-                        .background(
-                            Circle()
-                                .fill(canCopyLastText ? Color.green : Color.white.opacity(0.98))
-                        )
+                        .background(Circle().fill(Color.black.opacity(0.88)))
                 }
                 .buttonStyle(.plain)
-                .disabled(!canCopyLastText)
-                .help("Copy last spoken text")
+                .help("Hide overlay")
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(controlClusterBackground)
+            .padding(.leading, 10)
+            .padding(.trailing, 8)
+            .padding(.vertical, 8)
+            .background(pillBackground)
+            .compositingGroup()
+            .shadow(color: Color.black.opacity(0.18), radius: 14, x: 0, y: 6)
+
+            if isRecording || isTranscribing {
+                statusLabel
+                    .transition(.opacity)
+            }
         }
-        .padding(8)
-        .onHover { hovering in
-            isHovering = hovering
-        }
+        // Entire root must be clear so only the capsule is visible
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .background(Color.clear)
+        .padding(4)
     }
 
-    private var controlClusterBackground: some View {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(Color.black.opacity(0.07))
+    // MARK: - Pieces
+
+    private var micButton: some View {
+        Button(action: {
+            if !isTranscribing {
+                onToggle?(DictationOptions(intent: intent, translateToEnglish: translateToEnglish))
+            }
+        }) {
+            ZStack {
+                Circle()
+                    .fill(micBackground)
+                    .frame(width: 36, height: 36)
+
+                if isTranscribing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(softInk)
+                } else {
+                    Image(systemName: isRecording ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(isRecording ? .white : softInk.opacity(0.9))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isTranscribing)
+        .help(isRecording ? "Stop recording" : "Start dictation")
+    }
+
+    private var micBackground: Color {
+        if isTranscribing {
+            return Color.white.opacity(0.92)
+        }
+        if isRecording {
+            return Color(red: 0.86, green: 0.22, blue: 0.22)
+        }
+        return Color.white.opacity(0.92)
+    }
+
+    private var expandedOptions: some View {
+        HStack(spacing: 8) {
+            optionChip(
+                systemName: "sparkles",
+                title: "Prompt",
+                isOn: intent == .prompt,
+                onColor: Color.orange
+            ) {
+                onIntentChange?(intent == .prompt ? .transcription : .prompt)
+            }
+            .disabled(isRecording || isTranscribing)
+
+            optionChip(
+                systemName: "globe",
+                title: "EN",
+                isOn: translateToEnglish || intent == .prompt,
+                onColor: Color.blue
+            ) {
+                onTranslateChange?(!translateToEnglish)
+            }
+            .disabled(isRecording || isTranscribing || intent == .prompt)
+            .opacity(intent == .prompt ? 0.55 : 1)
+
+            optionChip(
+                systemName: "doc.on.doc",
+                title: "Copy",
+                isOn: canCopyLastText,
+                onColor: Color.green
+            ) {
+                onCopyLastText?()
+            }
+            .disabled(!canCopyLastText)
+            .opacity(canCopyLastText ? 1 : 0.45)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(pillBackground)
+        .compositingGroup()
+        .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 4)
+    }
+
+    private var statusLabel: some View {
+        HStack(spacing: 6) {
+            if isRecording {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 7, height: 7)
+            }
+
+            Text(isTranscribing ? "Transcribing…" : "Listening…")
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundColor(.primary.opacity(0.85))
+                .tracking(0.3)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(statusBackground)
+        .compositingGroup()
+    }
+
+    /// Cool translucent glass — not warm/cream
+    private var pillBackground: some View {
+        Capsule(style: .continuous)
+            .fill(.regularMaterial)
+            .environment(\.colorScheme, .light)
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.28))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.55), lineWidth: 0.8)
             )
     }
 
-    private var closeButton: some View {
-        Button(action: {
-            onClose?()
-        }) {
-            Image(systemName: "xmark")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.white)
-                .frame(width: 20, height: 20)
-                .background(Circle().fill(Color.black.opacity(0.75)))
-        }
-        .buttonStyle(.plain)
+    private var statusBackground: some View {
+        Capsule(style: .continuous)
+            .fill(.regularMaterial)
+            .environment(\.colorScheme, .light)
+            .overlay(
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.2))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.4), lineWidth: 0.6)
+            )
     }
 
-    private var promptToggleBinding: Binding<Bool> {
-        Binding(
-            get: { intent == .prompt },
-            set: { isPrompt in
-                onIntentChange?(isPrompt ? .prompt : .transcription)
-            }
-        )
-    }
-
-    private var translateToggleBinding: Binding<Bool> {
-        Binding(
-            get: { translateToEnglish || intent == .prompt },
-            set: { shouldTranslate in
-                onTranslateChange?(shouldTranslate)
-            }
-        )
-    }
-}
-
-private struct IconToggle: View {
-    @Binding var isOn: Bool
-    let systemName: String
-    let onColor: Color
-
-    var body: some View {
-        Button(action: { isOn.toggle() }) {
+    private func circleButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(isOn ? .white : .secondary)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(softInk.opacity(0.85))
                 .frame(width: 32, height: 32)
                 .background(
                     Circle()
-                        .fill(isOn ? onColor : Color.white.opacity(0.98))
+                        .fill(Color.white.opacity(0.35))
+                        .overlay(
+                            Circle()
+                                .stroke(Color.black.opacity(0.12), lineWidth: 1)
+                        )
                 )
         }
         .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.15), value: isOn)
     }
-}
 
-private struct FlagToggle: View {
-    @Binding var isOn: Bool
-    let onColor: Color
-
-    var body: some View {
-        Button(action: { isOn.toggle() }) {
-            ZStack {
-                Circle()
-                    .fill(isOn ? Color.clear : Color.white.opacity(0.98))
-
-                GeometryReader { proxy in
-                    let width = proxy.size.width
-                    let height = proxy.size.height
-                    HStack(spacing: 0) {
-                        USFlagView()
-                            .frame(width: width / 2, height: height)
-                        UKFlagView()
-                            .frame(width: width / 2, height: height)
-                    }
-                }
-                .clipShape(Circle())
-
-                Circle()
-                    .stroke(isOn ? onColor : Color.white.opacity(1.0), lineWidth: 1.5)
+    private func optionChip(
+        systemName: String,
+        title: String,
+        isOn: Bool,
+        onColor: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemName)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
             }
-            .frame(width: 36, height: 32)
+            .foregroundColor(isOn ? .white : softInk.opacity(0.8))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                Capsule()
+                    .fill(isOn ? onColor : Color.white.opacity(0.45))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.black.opacity(isOn ? 0 : 0.1), lineWidth: 0.5)
+            )
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.15), value: isOn)
     }
 }
 
-private struct USFlagView: View {
+// MARK: - Waveform (voice-reactive)
+
+/// Sine waveform that scales strongly with live mic `level`
+private struct WaveformCanvas: View {
+    let level: Float
+    let isActive: Bool
+    let color: Color
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isActive)) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            WaveformShape(level: level, isActive: isActive, time: t, color: color)
+        }
+    }
+}
+
+private struct WaveformShape: View {
+    let level: Float
+    let isActive: Bool
+    let time: TimeInterval
+    let color: Color
+
     var body: some View {
         Canvas { context, size in
-            let stripeCount = 13
-            let stripeHeight = size.height / CGFloat(stripeCount)
-            for index in 0..<stripeCount {
-                let isRed = index % 2 == 0
-                let rect = CGRect(x: 0, y: CGFloat(index) * stripeHeight, width: size.width, height: stripeHeight)
-                context.fill(Path(rect), with: .color(isRed ? .red : .white))
-            }
+            let midY = size.height / 2
+            let boosted = min(1.0, Double(level) * 2.4)
+            let amp = isActive ? (0.08 + boosted * 0.92) : 0.12
+            let maxAmp = size.height * 0.48 * CGFloat(amp)
+            let steps = max(Int(size.width), 2)
 
-            let cantonWidth = size.width * 0.45
-            let cantonHeight = size.height * 0.55
-            let cantonRect = CGRect(x: 0, y: 0, width: cantonWidth, height: cantonHeight)
-            context.fill(Path(cantonRect), with: .color(.blue))
-
-            let rows = 5
-            let cols = 6
-            let starRadius = min(cantonWidth / CGFloat(cols * 3), cantonHeight / CGFloat(rows * 3))
-            for row in 0..<rows {
-                for col in 0..<cols {
-                    let x = (CGFloat(col) + 0.5) * (cantonWidth / CGFloat(cols))
-                    let y = (CGFloat(row) + 0.5) * (cantonHeight / CGFloat(rows))
-                    let rect = CGRect(x: x - starRadius / 2, y: y - starRadius / 2, width: starRadius, height: starRadius)
-                    context.fill(Path(ellipseIn: rect), with: .color(.white))
+            var path = Path()
+            for i in 0...steps {
+                let progress = CGFloat(i) / CGFloat(steps)
+                let x = progress * size.width
+                let envelope = sin(progress * .pi)
+                let p = progress * .pi * 2
+                let t = CGFloat(time)
+                let wave =
+                    sin(p * 2.0 + t * 6.0) * 0.55
+                    + sin(p * 3.5 + t * 4.2) * 0.30
+                    + sin(p * 5.5 + t * 9.0) * 0.15
+                let y = midY + wave * maxAmp * envelope
+                if i == 0 {
+                    path.move(to: CGPoint(x: x, y: y))
+                } else {
+                    path.addLine(to: CGPoint(x: x, y: y))
                 }
             }
+
+            context.stroke(
+                path,
+                with: .color(color.opacity(isActive ? 0.95 : 0.45)),
+                style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round)
+            )
         }
-        .clipShape(RoundedRectangle(cornerRadius: 1.5))
     }
 }
 
-private struct UKFlagView: View {
-    var body: some View {
-        Canvas { context, size in
-            let rect = CGRect(origin: .zero, size: size)
-            context.fill(Path(rect), with: .color(Color(red: 0.03, green: 0.2, blue: 0.55)))
+// MARK: - Shared audio bars
 
-            let diagWidth = size.height * 0.25
-            let wideDiag = diagWidth * 0.6
-            let redDiag = diagWidth * 0.35
-
-            let diagonal1 = Path { path in
-                path.move(to: CGPoint(x: 0, y: wideDiag))
-                path.addLine(to: CGPoint(x: wideDiag, y: 0))
-                path.addLine(to: CGPoint(x: size.width, y: size.height - wideDiag))
-                path.addLine(to: CGPoint(x: size.width - wideDiag, y: size.height))
-                path.closeSubpath()
-            }
-            context.fill(diagonal1, with: .color(.white))
-
-            let diagonal2 = Path { path in
-                path.move(to: CGPoint(x: size.width - wideDiag, y: 0))
-                path.addLine(to: CGPoint(x: size.width, y: wideDiag))
-                path.addLine(to: CGPoint(x: wideDiag, y: size.height))
-                path.addLine(to: CGPoint(x: 0, y: size.height - wideDiag))
-                path.closeSubpath()
-            }
-            context.fill(diagonal2, with: .color(.white))
-
-            let redDiagonal1 = Path { path in
-                path.move(to: CGPoint(x: 0, y: redDiag))
-                path.addLine(to: CGPoint(x: redDiag, y: 0))
-                path.addLine(to: CGPoint(x: size.width, y: size.height - redDiag))
-                path.addLine(to: CGPoint(x: size.width - redDiag, y: size.height))
-                path.closeSubpath()
-            }
-            context.fill(redDiagonal1, with: .color(.red))
-
-            let redDiagonal2 = Path { path in
-                path.move(to: CGPoint(x: size.width - redDiag, y: 0))
-                path.addLine(to: CGPoint(x: size.width, y: redDiag))
-                path.addLine(to: CGPoint(x: redDiag, y: size.height))
-                path.addLine(to: CGPoint(x: 0, y: size.height - redDiag))
-                path.closeSubpath()
-            }
-            context.fill(redDiagonal2, with: .color(.red))
-
-            let whiteCrossWidth = size.height * 0.3
-            let redCrossWidth = size.height * 0.18
-
-            let horizontalWhite = CGRect(x: 0, y: (size.height - whiteCrossWidth) / 2, width: size.width, height: whiteCrossWidth)
-            let verticalWhite = CGRect(x: (size.width - whiteCrossWidth) / 2, y: 0, width: whiteCrossWidth, height: size.height)
-            context.fill(Path(horizontalWhite), with: .color(.white))
-            context.fill(Path(verticalWhite), with: .color(.white))
-
-            let horizontalRed = CGRect(x: 0, y: (size.height - redCrossWidth) / 2, width: size.width, height: redCrossWidth)
-            let verticalRed = CGRect(x: (size.width - redCrossWidth) / 2, y: 0, width: redCrossWidth, height: size.height)
-            context.fill(Path(horizontalRed), with: .color(.red))
-            context.fill(Path(verticalRed), with: .color(.red))
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 1.5))
-    }
-}
-
-/// Animated audio level visualization
 struct AudioLevelView: View {
     let level: Float
     private let barCount = 5
@@ -295,62 +321,47 @@ struct AudioLevelView: View {
         HStack(spacing: 3) {
             ForEach(0..<barCount, id: \.self) { index in
                 let threshold = Float(index) / Float(barCount)
-                let isActive = level > threshold
+                let isOn = level > threshold
                 let barHeight = CGFloat(index + 1) * 4
 
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(isActive ? barColor(for: index) : Color.gray.opacity(0.3))
+                    .fill(isOn ? Color.green : Color.gray.opacity(0.3))
                     .frame(width: 5, height: barHeight)
                     .animation(.easeOut(duration: 0.1), value: level)
             }
         }
         .frame(height: 20, alignment: .bottom)
     }
-
-    private func barColor(for index: Int) -> Color {
-        let progress = Float(index) / Float(barCount - 1)
-        if progress < 0.5 {
-            return .green
-        } else if progress < 0.8 {
-            return .yellow
-        } else {
-            return .red
-        }
-    }
 }
 
 #Preview("Idle") {
-    RecordingOverlayView(
-        isRecording: false,
-        isTranscribing: false,
-        audioLevel: 0,
-        intent: .transcription,
-        translateToEnglish: false,
-        canCopyLastText: true
-    )
-    .padding()
+    ZStack {
+        Color.gray.opacity(0.4).ignoresSafeArea()
+        RecordingOverlayView(
+            isRecording: false,
+            isTranscribing: false,
+            audioLevel: 0,
+            intent: .transcription,
+            translateToEnglish: false,
+            canCopyLastText: true,
+            isExpanded: false
+        )
+    }
+    .frame(width: 420, height: 180)
 }
 
 #Preview("Recording") {
-    RecordingOverlayView(
-        isRecording: true,
-        isTranscribing: false,
-        audioLevel: 0.6,
-        intent: .prompt,
-        translateToEnglish: true,
-        canCopyLastText: true
-    )
-    .padding()
-}
-
-#Preview("Transcribing") {
-    RecordingOverlayView(
-        isRecording: false,
-        isTranscribing: true,
-        audioLevel: 0,
-        intent: .transcription,
-        translateToEnglish: false,
-        canCopyLastText: false
-    )
-    .padding()
+    ZStack {
+        Color.gray.opacity(0.4).ignoresSafeArea()
+        RecordingOverlayView(
+            isRecording: true,
+            isTranscribing: false,
+            audioLevel: 0.7,
+            intent: .prompt,
+            translateToEnglish: true,
+            canCopyLastText: true,
+            isExpanded: true
+        )
+    }
+    .frame(width: 420, height: 220)
 }

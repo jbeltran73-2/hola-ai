@@ -52,20 +52,24 @@ private final class AudioBuffer: @unchecked Sendable {
     func append(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData?[0] else { return }
         let frameLength = Int(buffer.frameLength)
+        guard frameLength > 0 else { return }
 
-        // Calculate level
-        var sum: Float = 0
-        for i in 0..<frameLength {
-            sum += abs(channelData[i])
-        }
-        let averageLevel = sum / Float(frameLength)
-        let db = 20 * log10(max(averageLevel, 0.0001))
-        let normalizedLevel = max(0, min(1, (db + 60) / 60))
+        // RMS level — more responsive to speech peaks than simple average
+        var sumSquares: Float = 0
+        vDSP_svesq(channelData, 1, &sumSquares, vDSP_Length(frameLength))
+        let rms = sqrt(sumSquares / Float(frameLength))
+        // Map RMS to 0…1 with speech-friendly curve (quiet speech still moves UI)
+        // Typical speech RMS ~0.01–0.2; boost midrange with sqrt
+        let normalizedLevel = max(0, min(1, sqrt(rms * 8.0)))
 
         lock.lock()
-        // Append samples
         samples.append(contentsOf: UnsafeBufferPointer(start: channelData, count: frameLength))
-        _currentLevel = normalizedLevel
+        // Fast attack / slower release so the waveform “pops” with voice
+        if normalizedLevel > _currentLevel {
+            _currentLevel = normalizedLevel
+        } else {
+            _currentLevel = _currentLevel * 0.72 + normalizedLevel * 0.28
+        }
         lock.unlock()
     }
 

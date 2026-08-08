@@ -60,7 +60,7 @@ final class TextProcessingService {
            let provider = LLMProvider(rawValue: raw) {
             return provider
         }
-        return .cerebras
+        return .xai
     }
 
     /// LLM provider for prompt enhancement
@@ -69,7 +69,7 @@ final class TextProcessingService {
            let provider = LLMProvider(rawValue: raw) {
             return provider
         }
-        return .openrouter
+        return .xai
     }
 
     /// Model for dictation text cleanup

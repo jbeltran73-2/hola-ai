@@ -13,8 +13,11 @@ final class RecordingOverlayController {
     private var intent: DictationIntent = .transcription
     private var translateToEnglish: Bool = false
     private var canCopyLastText = false
-    private let idleSize = NSSize(width: 260, height: 96)
-    private let recordingSize = NSSize(width: 310, height: 96)
+    private var isExpanded = false
+
+    /// Pill-shaped bar. Extra height is transparent (status / expanded chips).
+    private let idleSize = NSSize(width: 340, height: 140)
+    private let activeSize = NSSize(width: 340, height: 140)
 
     /// Callback when the toggle button is pressed
     var onToggle: ((DictationOptions) -> Void)?
@@ -25,7 +28,7 @@ final class RecordingOverlayController {
     func show() {
         guard panel == nil else { return }
 
-        // Use NSPanel with nonactivatingPanel so clicking doesn't steal focus from the text field
+        // nonactivatingPanel: clicks do not steal focus from the text field
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: idleSize),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -33,55 +36,37 @@ final class RecordingOverlayController {
             defer: false
         )
         panel.isReleasedWhenClosed = false
-
-        // These settings ensure the panel doesn't take focus
         panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = false
         panel.hasShadow = false
 
-        let overlayView = RecordingOverlayView(
-            isRecording: isRecording,
-            isTranscribing: isTranscribing,
-            audioLevel: audioLevel,
-            intent: intent,
-            translateToEnglish: translateToEnglish,
-            canCopyLastText: canCopyLastText,
-            onToggle: { [weak self] options in
-                self?.onToggle?(options)
-            },
-            onIntentChange: { [weak self] newIntent in
-                self?.intent = newIntent
-                if newIntent == .prompt {
-                    self?.translateToEnglish = true
-                }
-                self?.updateView()
-            },
-            onTranslateChange: { [weak self] shouldTranslate in
-                self?.translateToEnglish = shouldTranslate
-                self?.updateView()
-            },
-            onCopyLastText: { [weak self] in
-                self?.onCopyLastText?()
-            },
-            onClose: { [weak self] in
-                self?.onClose?()
-            }
-        )
-        let hostingView = NSHostingView(rootView: overlayView)
-        self.hostingView = hostingView
-        panel.contentView = hostingView
-        hostingView.autoresizingMask = [.width, .height]
-
+        // Fully transparent chrome — only SwiftUI capsule should paint pixels
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        panel.titlebarAppearsTransparent = true
+
+        let overlayView = makeView()
+        let hostingView = NSHostingView(rootView: overlayView)
+        hostingView.autoresizingMask = [.width, .height]
+        // Critical: NSHostingView defaults can paint an opaque cream/gray backdrop
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        hostingView.layer?.isOpaque = false
+
+        panel.contentView = hostingView
+        if let contentView = panel.contentView {
+            contentView.wantsLayer = true
+            contentView.layer?.backgroundColor = NSColor.clear.cgColor
+            contentView.layer?.isOpaque = false
+        }
+
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         panel.isMovableByWindowBackground = true
 
-        // Position in bottom-right corner with padding
         positionWindow(panel)
-
         panel.orderFront(nil)
+        self.hostingView = hostingView
         self.panel = panel
     }
 
@@ -99,33 +84,25 @@ final class RecordingOverlayController {
         isRecording = recording
 
         if !recording {
-            // Reset intent after each recording (do not remember last option)
             intent = .transcription
             translateToEnglish = false
         }
 
         updateView()
-
-        // Resize panel based on state
-        if let panel = panel {
-            let newSize = recording ? recordingSize : idleSize
-            var frame = panel.frame
-            let widthDiff = newSize.width - frame.width
-            frame.size.width = newSize.width
-            frame.size.height = newSize.height
-            frame.origin.x -= widthDiff // Keep right edge in place
-            panel.setFrame(frame, display: true, animate: true)
-        }
+        resizePanel(forRecording: recording)
     }
 
     /// Update the transcribing state (show spinner)
     func setTranscribing(_ transcribing: Bool) {
         isTranscribing = transcribing
         updateView()
+        resizePanel(forRecording: isRecording || transcribing)
     }
 
     /// Update the audio level visualization
     func updateAudioLevel(_ level: Float) {
+        // Skip tiny no-ops to reduce SwiftUI thrashing while still feeling live
+        if abs(level - audioLevel) < 0.01, level > 0.02 { return }
         audioLevel = level
         updateView()
     }
@@ -136,14 +113,15 @@ final class RecordingOverlayController {
         updateView()
     }
 
-    private func updateView() {
-        hostingView?.rootView = RecordingOverlayView(
+    private func makeView() -> RecordingOverlayView {
+        RecordingOverlayView(
             isRecording: isRecording,
             isTranscribing: isTranscribing,
             audioLevel: audioLevel,
             intent: intent,
             translateToEnglish: translateToEnglish,
             canCopyLastText: canCopyLastText,
+            isExpanded: isExpanded,
             onToggle: { [weak self] options in
                 self?.onToggle?(options)
             },
@@ -163,15 +141,40 @@ final class RecordingOverlayController {
             },
             onClose: { [weak self] in
                 self?.onClose?()
+            },
+            onExpandChange: { [weak self] expanded in
+                self?.isExpanded = expanded
+                self?.updateView()
             }
         )
+    }
+
+    private func updateView() {
+        hostingView?.rootView = makeView()
+        // Re-assert clear background after SwiftUI updates
+        hostingView?.layer?.backgroundColor = NSColor.clear.cgColor
+        panel?.backgroundColor = .clear
+        panel?.isOpaque = false
+    }
+
+    private func resizePanel(forRecording active: Bool) {
+        guard let panel = panel else { return }
+        let newSize = active ? activeSize : idleSize
+        var frame = panel.frame
+        let widthDiff = newSize.width - frame.width
+        let heightDiff = newSize.height - frame.height
+        frame.size.width = newSize.width
+        frame.size.height = newSize.height
+        frame.origin.x -= widthDiff
+        frame.origin.y -= heightDiff
+        panel.setFrame(frame, display: true, animate: true)
     }
 
     private func positionWindow(_ window: NSWindow) {
         guard let screen = NSScreen.main else { return }
 
         let screenRect = screen.visibleFrame
-        let padding: CGFloat = 20
+        let padding: CGFloat = 24
         let windowSize = window.frame.size
 
         let x = screenRect.maxX - windowSize.width - padding

@@ -52,7 +52,7 @@ final class TranscriptionService {
            let provider = STTProvider(rawValue: raw) {
             return provider
         }
-        return .groq
+        return .xai
     }
 
     /// Whether code-switching mode is enabled
@@ -79,11 +79,91 @@ final class TranscriptionService {
         let model = sttModel ?? provider.defaultModel
 
         switch provider {
+        case .xai:
+            return try await transcribeWithXAI(audioURL: audioURL, language: language, apiKey: apiKey)
         case .groq:
             return try await transcribeWithGroq(audioURL: audioURL, language: language, apiKey: apiKey, model: model)
         case .openrouter:
             return try await transcribeWithOpenRouter(audioURL: audioURL, language: language, apiKey: apiKey, model: model)
         }
+    }
+
+    // MARK: - xAI Grok STT (multipart/form-data)
+
+    /// Transcribe via Grok Speech-to-Text REST API
+    /// Docs: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text
+    /// Note: option fields must precede `file` in the multipart body.
+    private func transcribeWithXAI(audioURL: URL, language: String?, apiKey: String) async throws -> String {
+        let audioData: Data
+        do {
+            audioData = try Data(contentsOf: audioURL)
+        } catch {
+            logger.error("Failed to read audio file: \(error.localizedDescription)")
+            throw TranscriptionError.invalidAudioFile
+        }
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var body = Data()
+
+        func appendField(name: String, value: String) {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
+
+        // Options first (required order for xAI STT)
+        // format=true enables Inverse Text Normalization when language is set
+        if let lang = language, !isCodeSwitchingEnabled {
+            appendField(name: "format", value: "true")
+            appendField(name: "language", value: lang)
+        }
+
+        // Filler words off by default — cleaner dictation output
+        appendField(name: "filler_words", value: "false")
+
+        // File field last
+        let filename = audioURL.lastPathComponent
+        let mimeType = "audio/wav"
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        var request = URLRequest(url: URL(string: STTProvider.xai.baseURL)!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            logger.error("Network error: \(error.localizedDescription)")
+            throw TranscriptionError.networkError(underlying: error)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw TranscriptionError.invalidResponse
+        }
+
+        if httpResponse.statusCode != 200 {
+            if let errorResponse = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) {
+                if httpResponse.statusCode == 429 { throw TranscriptionError.rateLimited }
+                throw TranscriptionError.apiError(statusCode: httpResponse.statusCode, message: errorResponse.error.message)
+            }
+            let bodyText = String(data: data, encoding: .utf8) ?? "Unknown error"
+            if httpResponse.statusCode == 429 { throw TranscriptionError.rateLimited }
+            throw TranscriptionError.apiError(statusCode: httpResponse.statusCode, message: bodyText.prefix(200).description)
+        }
+
+        let sttResponse = try JSONDecoder().decode(XAITranscriptionResponse.self, from: data)
+        let text = sttResponse.text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        logger.info("xAI Grok STT successful (\(sttResponse.duration.map { String(format: "%.2fs" , $0) } ?? "?")): \(text.prefix(50))...")
+        return text
     }
 
     // MARK: - Groq Whisper (multipart/form-data)
@@ -266,6 +346,12 @@ private extension TranscriptionService {
 
     struct GroqTranscriptionResponse: Decodable {
         let text: String
+    }
+
+    struct XAITranscriptionResponse: Decodable {
+        let text: String
+        let language: String?
+        let duration: Double?
     }
 
     func normalizedAudioFormat(from url: URL) -> String {

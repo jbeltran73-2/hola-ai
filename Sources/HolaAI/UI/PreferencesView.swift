@@ -7,9 +7,9 @@ struct PreferencesView: View {
     @State private var showDockIcon: Bool = true
 
     // Provider selections
-    @State private var sttProvider: STTProvider = .groq
-    @State private var dictationLLMProvider: LLMProvider = .cerebras
-    @State private var promptLLMProvider: LLMProvider = .openrouter
+    @State private var sttProvider: STTProvider = .xai
+    @State private var dictationLLMProvider: LLMProvider = .xai
+    @State private var promptLLMProvider: LLMProvider = .xai
 
     // Models
     @State private var sttModel: String = ""
@@ -17,9 +17,11 @@ struct PreferencesView: View {
     @State private var promptModel: String = ""
 
     // API Keys
+    @State private var xaiKey: String = ""
     @State private var groqKey: String = ""
     @State private var cerebrasKey: String = ""
     @State private var openrouterKey: String = ""
+    @State private var showXAIKey: Bool = false
     @State private var showGroqKey: Bool = false
     @State private var showCerebrasKey: Bool = false
     @State private var showOpenRouterKey: Bool = false
@@ -63,7 +65,7 @@ struct PreferencesView: View {
                     Label("API", systemImage: "key")
                 }
         }
-        .frame(width: 520, height: 560)
+        .frame(width: 540, height: 620)
         .onAppear {
             loadSettings()
         }
@@ -168,15 +170,24 @@ struct PreferencesView: View {
                     }
                 }
 
-                TextField("Model", text: $sttModel)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: sttModel) { newValue in
-                        UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "sttModel")
+                if sttProvider.supportsCustomModel {
+                    TextField("Model", text: $sttModel)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: sttModel) { newValue in
+                            UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "sttModel")
+                        }
+                } else {
+                    HStack {
+                        Text("Model")
+                        Spacer()
+                        Text(sttProvider.defaultModel)
+                            .foregroundStyle(.secondary)
                     }
+                }
             } header: {
                 Text("Transcription (STT)")
             } footer: {
-                Text("Groq uses native Whisper API (fastest). OpenRouter uses audio via chat completions.")
+                Text(sttProvider.helpText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -218,8 +229,10 @@ struct PreferencesView: View {
                 }
                 .onChange(of: promptLLMProvider) { newValue in
                     UserDefaults.standard.set(newValue.rawValue, forKey: "promptLLMProvider")
-                    if promptModel.isEmpty || LLMProvider.allCases.contains(where: { $0.defaultModel == promptModel && $0 != newValue }) {
-                        promptModel = newValue.defaultModel
+                    if promptModel.isEmpty || LLMProvider.allCases.contains(where: {
+                        ($0.defaultModel == promptModel || $0.defaultPromptModel == promptModel) && $0 != newValue
+                    }) {
+                        promptModel = newValue.defaultPromptModel
                         UserDefaults.standard.set(promptModel, forKey: "promptEnhancementModel")
                     }
                 }
@@ -232,25 +245,27 @@ struct PreferencesView: View {
             } header: {
                 Text("Prompt Enhancement")
             } footer: {
-                Text("More capable model for translating and rewriting prompts to English.")
+                Text("More capable model for translating and rewriting prompts to English. xAI: try grok-4 or grok-4.5.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             // API Keys
             Section {
+                apiKeyRow(label: "xAI", key: $xaiKey, show: $showXAIKey, account: "xai-api-key")
                 apiKeyRow(label: "Groq", key: $groqKey, show: $showGroqKey, account: "groq-api-key")
                 apiKeyRow(label: "Cerebras", key: $cerebrasKey, show: $showCerebrasKey, account: "cerebras-api-key")
                 apiKeyRow(label: "OpenRouter", key: $openrouterKey, show: $showOpenRouterKey, account: "openrouter-api-key")
             } header: {
                 Text("API Keys")
             } footer: {
-                Text("Keys are stored securely in the macOS Keychain. Only keys for providers you use are required.")
+                Text("Keys are stored securely in the macOS Keychain. Only keys for providers you use are required. One xAI key covers both Grok STT and Grok chat.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section {
+                Link("Get xAI (Grok) API key", destination: URL(string: "https://console.x.ai/")!)
                 Link("Get Groq API key", destination: URL(string: "https://console.groq.com/keys")!)
                 Link("Get Cerebras API key", destination: URL(string: "https://cloud.cerebras.ai/")!)
                 Link("Get OpenRouter API key", destination: URL(string: "https://openrouter.ai/keys")!)
@@ -339,9 +354,10 @@ struct PreferencesView: View {
         // Models (use defaults if empty)
         sttModel = UserDefaults.standard.string(forKey: "sttModel") ?? sttProvider.defaultModel
         dictationLLMModel = UserDefaults.standard.string(forKey: "dictationLLMModel") ?? dictationLLMProvider.defaultModel
-        promptModel = UserDefaults.standard.string(forKey: "promptEnhancementModel") ?? promptLLMProvider.defaultModel
+        promptModel = UserDefaults.standard.string(forKey: "promptEnhancementModel") ?? promptLLMProvider.defaultPromptModel
 
         // API Keys - show placeholder if stored
+        if KeychainService.shared.hasKey(for: "xai-api-key") { xaiKey = "********" }
         if KeychainService.shared.hasKey(for: "groq-api-key") { groqKey = "********" }
         if KeychainService.shared.hasKey(for: "cerebras-api-key") { cerebrasKey = "********" }
         if KeychainService.shared.hasKey(for: "openrouter-api-key") { openrouterKey = "********" }
@@ -361,6 +377,7 @@ struct PreferencesView: View {
             }
             // Replace with placeholder
             switch account {
+            case "xai-api-key": xaiKey = "********"
             case "groq-api-key": groqKey = "********"
             case "cerebras-api-key": cerebrasKey = "********"
             case "openrouter-api-key": openrouterKey = "********"

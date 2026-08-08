@@ -106,6 +106,9 @@ final class DictationManager: AudioCaptureDelegate {
         self.translateToEnglish = translateToEnglish
         print("✅ [DictationManager] API key found")
 
+        // Remember which app has the cursor so we can paste back into it later
+        textInsertionService.captureTargetApplication()
+
         do {
             print("🎙️ [DictationManager] Starting audio capture...")
             try await audioCapture.startRecording()

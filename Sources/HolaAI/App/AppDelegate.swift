@@ -172,8 +172,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         recordingOverlay.onCopyLastText = { [weak self] in
             self?.copyLastTranscribedTextToClipboard()
         }
+        // X button hides the floating bar (re-show from menu bar → Show Overlay)
         recordingOverlay.onClose = { [weak self] in
-            self?.quitApp()
+            self?.hideOverlay()
         }
         recordingOverlay.setCopyAvailable(false)
     }
